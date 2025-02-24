@@ -1,8 +1,12 @@
 #include <iostream>
 #include <vector>
+#include <sstream>
 #include <fstream>
+#include <filesystem>
+#include <chrono>
 
 using namespace std;
+
 
 template<typename T>
 vector<vector<T>> multiplyMatrices(const vector<vector<T>>& left, const vector<vector<T>>& right) {
@@ -20,24 +24,58 @@ vector<vector<T>> multiplyMatrices(const vector<vector<T>>& left, const vector<v
 	return result;
 }
 
+template<typename T>
+vector<vector<T>> readMatrix(const string& path, const int& size, const int& index, const string& name) {
+    vector<vector<T>> matrix;
+    string filepath = path + "_" + to_string(size) + "_" + to_string(index) + "_" + name;
+    ifstream file(filepath);
+    if (!file.is_open()) {
+        cerr << "File opening error: " << filepath << endl;
+        return matrix;
+    }
+    string line;
+    while (getline(file, line)) {
+        vector<T> row;
+        stringstream ss(line);
+        string value;
+        while (getline(ss, value, ',')) {
+            row.push_back(stoi(value));
+        }
+        matrix.push_back(row);
+    }
+    file.close();
+    return matrix;
+}
 
-int main() {
-	vector<vector<int>> a = {
-		{1, 2, 3},
-		{4, 5, 6}
-	};
-	vector<vector<int>> b = {
-		{7, 8},
-		{9, 10},
-		{11, 12}
-	};
-	auto c = multiplyMatrices<int>(a, b);
-	for (const auto& row : c) {
-		for (auto value : row) {
-			cout << value << " ";
-		}
-		cout << endl;
-	}
+vector<pair<int, double>> testMultiplication(const string& path) {
+    chrono::steady_clock::time_point start;
+    chrono::steady_clock::time_point end;
+    chrono::duration<double> duration;
+    vector<vector<int>> a;
+    vector<vector<int>> b;
+    vector<vector<int>> c;
+    vector<pair<int, double>> stats;
+    for (int i = 100; i <= 300; i += 100) {
+        duration = chrono::duration<double>(0);
+        for (int j = 0; j < 10; ++j) {
+            cout << i << " " << j << endl;
+            a = readMatrix<int>(path, i, j, "a");
+            b = readMatrix<int>(path, i, j, "b");
+            start = chrono::high_resolution_clock::now();
+            c = multiplyMatrices(a, b);
+            end = chrono::high_resolution_clock::now();
+            duration += end - start;
+        }
+        stats.push_back(pair<int, double>(i, duration.count()));
+    }
+    return stats;
+}
 
-	return 0;
+
+int main(int argc, char* argv[]) {
+    auto stats = testMultiplication("samples\\samples");
+    for (const auto& test : stats) {
+        cout << test.first << " : " << test.second << endl;
+    }
+    return 0;
 }

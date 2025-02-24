@@ -1,8 +1,11 @@
 from generator import generate_samples
-from validator import multiply_matrices, read_matrix_from_file
+from validator import is_correct
+from stats import read_stats, plot_function
 
-#result = multiply_matrices(10, 0)
-#print(f'Result of multiplication for size {10}, sample {0}:\n{result}\n')
 
-for i in range(100, 1001, 100):
-    generate_samples(i)
+if __name__ == '__main__':
+    #generate_samples()
+    #print(is_correct())
+    size_data, time_data = read_stats("ParallelProgramming\\stats.txt")
+    plot_function(size_data, time_data)
+ 

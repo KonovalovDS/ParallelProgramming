@@ -25,9 +25,8 @@ vector<vector<T>> multiplyMatrices(const vector<vector<T>>& left, const vector<v
 }
 
 template<typename T>
-vector<vector<T>> readMatrix(const string& path, const int& size, const int& index, const string& name) {
+vector<vector<T>> readMatrix(const string& filepath) {
     vector<vector<T>> matrix;
-    string filepath = path + "_" + to_string(size) + "_" + to_string(index) + "_" + name;
     ifstream file(filepath);
     if (!file.is_open()) {
         cerr << "File opening error: " << filepath << endl;
@@ -47,35 +46,67 @@ vector<vector<T>> readMatrix(const string& path, const int& size, const int& ind
     return matrix;
 }
 
+void writeMatrix(const vector<vector<int>>& matrix, const string& path) {
+    ofstream outFile(path);
+    if (!outFile) {
+        cerr << "File opening error: " << path << endl;
+        return;
+    }
+    for (const auto& row : matrix) {
+        for (size_t j = 0; j < row.size(); ++j) {
+            outFile << row[j];
+            if (j < row.size() - 1) {
+                outFile << ",";
+            }
+        }
+        outFile << endl;
+    }
+    outFile.close();
+}
+
+template<typename T>
 vector<pair<int, double>> testMultiplication(const string& path) {
     chrono::steady_clock::time_point start;
     chrono::steady_clock::time_point end;
     chrono::duration<double> duration;
-    vector<vector<int>> a;
-    vector<vector<int>> b;
-    vector<vector<int>> c;
+    vector<vector<T>> a;
+    vector<vector<T>> b;
+    vector<vector<T>> c;
     vector<pair<int, double>> stats;
-    for (int i = 100; i <= 300; i += 100) {
+    string filepath;
+    for (int i = 100; i <= 1000; i += 100) {
         duration = chrono::duration<double>(0);
         for (int j = 0; j < 10; ++j) {
             cout << i << " " << j << endl;
-            a = readMatrix<int>(path, i, j, "a");
-            b = readMatrix<int>(path, i, j, "b");
+            filepath = path + "_" + to_string(i) + "_" + to_string(j) + "_";
+            a = readMatrix<T>(filepath + "a");
+            b = readMatrix<T>(filepath + "b");
             start = chrono::high_resolution_clock::now();
-            c = multiplyMatrices(a, b);
+            c = multiplyMatrices<T>(a, b);
             end = chrono::high_resolution_clock::now();
+            writeMatrix(c, filepath + "c");
             duration += end - start;
         }
-        stats.push_back(pair<int, double>(i, duration.count()));
+        stats.push_back(pair<int, double>(i, duration.count() / 10.0));
     }
     return stats;
 }
 
+void writeStats(vector<pair<int, double>>& stats, const string& filepath) {
+    std::ofstream outFile(filepath);
+    if (!outFile) {
+        std::cerr << "File opening error: " << filepath << std::endl;
+        return;
+    }
+    for (const auto& p : stats) {
+        outFile << p.first << "," << p.second << std::endl;
+    }
+    outFile.close();
+}
+
 
 int main(int argc, char* argv[]) {
-    auto stats = testMultiplication("samples\\samples");
-    for (const auto& test : stats) {
-        cout << test.first << " : " << test.second << endl;
-    }
+    auto stats = testMultiplication<int>("samples\\samples");
+    writeStats(stats, "stats.txt");
     return 0;
 }

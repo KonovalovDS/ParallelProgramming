@@ -4,6 +4,7 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <omp.h>
 
 using namespace std;
 
@@ -13,6 +14,7 @@ vector<vector<T>> multiplyMatrices(const vector<vector<T>>& left, const vector<v
 	vector<vector<T>> result;
 	if (left[0].size() == right.size() && !left.empty() && !right.empty()) {
 		result.resize(left.size(), vector<T>(right[0].size(), 0));
+        #pragma omp parallel for
 		for (auto i = 0; i < left.size(); ++i) {
 			for (auto j = 0; j < right[0].size(); ++j) {
 				for (auto k = 0; k < left[0].size(); ++k) {
@@ -106,7 +108,9 @@ void writeStats(vector<pair<int, double>>& stats, const string& filepath) {
 
 
 int main(int argc, char* argv[]) {
+    omp_set_num_threads(omp_get_max_threads());
     auto stats = testMultiplication<int>("samples\\samples");
     writeStats(stats, "stats.txt");
+    std::cout << "Processors: " << omp_get_num_procs() << ", Max threads: " << omp_get_max_threads() << std::endl;
     return 0;
 }

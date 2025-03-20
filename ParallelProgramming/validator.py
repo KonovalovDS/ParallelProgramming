@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 
 def read_matrix_from_file(filename):
@@ -13,6 +14,15 @@ def multiply_matrices(size, index):
     matrix_b = read_matrix_from_file(file_b)
     result_matrix = np.dot(matrix_a, matrix_b)
     return result_matrix
+
+def delete_matrices():
+    for size in range(100, 1001, 100):
+        print('Deleting matrices with size: ', size)
+        for index in range(10):
+            file_c = f'ParallelProgramming\\samples\\samples_{size}_{index}_c'
+            if os.path.exists(file_c):
+                os.remove(file_c)
+    print("Deletion complited")
 
 def is_correct():
     flag = True

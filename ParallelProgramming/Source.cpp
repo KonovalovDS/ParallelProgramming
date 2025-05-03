@@ -4,24 +4,48 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include <mpi.h>
 
 using namespace std;
 
 
 template<typename T>
-vector<vector<T>> multiplyMatrices(const vector<vector<T>>& left, const vector<vector<T>>& right) {
-	vector<vector<T>> result;
-	if (left[0].size() == right.size() && !left.empty() && !right.empty()) {
-		result.resize(left.size(), vector<T>(right[0].size(), 0));
-		for (auto i = 0; i < left.size(); ++i) {
-			for (auto j = 0; j < right[0].size(); ++j) {
-				for (auto k = 0; k < left[0].size(); ++k) {
-					result[i][j] += left[i][k] * right[k][j];
-				}
-			}
-		}
-	}
-	return result;
+vector<vector<T>> multiplyMatricesMPI(const vector<vector<T>>& left, const vector<vector<T>>& right, int rank, int size) {
+    int rows = left.size();
+    int cols = right[0].size();
+    int inner_dim = right.size();
+    vector<vector<T>> result(rows, vector<T>(cols, 0));
+
+    int rows_per_process = rows / size;
+    int extra_rows = rows % size;
+    int start_row = rank * rows_per_process + min(rank, extra_rows);
+    int end_row = start_row + rows_per_process + (rank < extra_rows ? 1 : 0);
+
+    for (int i = start_row; i < end_row; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            for (int k = 0; k < inner_dim; ++k) {
+                result[i][j] += left[i][k] * right[k][j];
+            }
+        }
+    }
+
+    if (rank == 0) {
+        for (int p = 1; p < size; ++p) {
+            int p_start = p * rows_per_process + min(p, extra_rows);
+            int p_end = p_start + rows_per_process + (p < extra_rows ? 1 : 0);
+
+            for (int i = p_start; i < p_end; ++i) {
+                MPI_Recv(result[i].data(), cols, MPI_INT, p, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+        }
+    }
+    else {
+        for (int i = start_row; i < end_row; ++i) {
+            MPI_Send(result[i].data(), cols, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        }
+    }
+
+    return result;
 }
 
 template<typename T>
@@ -29,7 +53,7 @@ vector<vector<T>> readMatrix(const string& filepath) {
     vector<vector<T>> matrix;
     ifstream file(filepath);
     if (!file.is_open()) {
-        cerr << "File opening error: " << filepath << endl;
+        cout << "File opening error: " << filepath << endl;
         return matrix;
     }
     string line;
@@ -74,21 +98,75 @@ vector<pair<int, double>> testMultiplication(const string& path) {
     vector<vector<T>> c;
     vector<pair<int, double>> stats;
     string filepath;
+
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
     for (int i = 100; i <= 1000; i += 100) {
         duration = chrono::duration<double>(0);
         for (int j = 0; j < 10; ++j) {
-            cout << i << " " << j << endl;
-            filepath = path + "_" + to_string(i) + "_" + to_string(j) + "_";
-            a = readMatrix<T>(filepath + "a");
-            b = readMatrix<T>(filepath + "b");
+            if (rank == 0) {
+                cout << "Testing " << i << "x" << i << " matrices, iteration " << j << endl;
+                filepath = path + "_" + to_string(i) + "_" + to_string(j) + "_";
+                a = readMatrix<T>(filepath + "a");
+                b = readMatrix<T>(filepath + "b");
+            }
+
+            int matrices_size[4] = { 0 };
+            if (rank == 0) {
+                matrices_size[0] = a.size();
+                matrices_size[1] = a[0].size();
+                matrices_size[2] = b.size();
+                matrices_size[3] = b[0].size();
+            }
+            MPI_Bcast(matrices_size, 4, MPI_INT, 0, MPI_COMM_WORLD);
+
+            vector<T> matrix_a_part(matrices_size[0] * matrices_size[1]);
+            vector<T> matrix_b_part(matrices_size[2] * matrices_size[3]);
+
+            if (rank == 0) {
+                for (int row = 0; row < matrices_size[0]; ++row) {
+                    copy(a[row].begin(), a[row].end(), matrix_a_part.begin() + row * matrices_size[1]);
+                }
+                for (int row = 0; row < matrices_size[2]; ++row) {
+                    copy(b[row].begin(), b[row].end(), matrix_b_part.begin() + row * matrices_size[3]);
+                }
+            }
+
+            MPI_Bcast(matrix_a_part.data(), matrix_a_part.size(), MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(matrix_b_part.data(), matrix_b_part.size(), MPI_INT, 0, MPI_COMM_WORLD);
+            a.resize(matrices_size[0]);
+            b.resize(matrices_size[2]);
+            for (int row = 0; row < matrices_size[0]; ++row) {
+                a[row].resize(matrices_size[1]);
+                copy(matrix_a_part.begin() + row * matrices_size[1],
+                    matrix_a_part.begin() + (row + 1) * matrices_size[1],
+                    a[row].begin());
+            }
+            for (int row = 0; row < matrices_size[2]; ++row) {
+                b[row].resize(matrices_size[3]);
+                copy(matrix_b_part.begin() + row * matrices_size[3],
+                    matrix_b_part.begin() + (row + 1) * matrices_size[3],
+                    b[row].begin());
+            }
+
+            MPI_Barrier(MPI_COMM_WORLD);
             start = chrono::high_resolution_clock::now();
-            c = multiplyMatrices<T>(a, b);
+            c = multiplyMatricesMPI<T>(a, b, rank, size);
+            MPI_Barrier(MPI_COMM_WORLD);
             end = chrono::high_resolution_clock::now();
-            writeMatrix(c, filepath + "c");
-            duration += end - start;
+
+            if (rank == 0) {
+                writeMatrix(c, filepath + "c");
+                duration += end - start;
+            }
         }
-        stats.push_back(pair<int, double>(i, duration.count() / 10.0));
+        if (rank == 0) {
+            stats.push_back(pair<int, double>(i, duration.count() / 10.0));
+        }
     }
+
     return stats;
 }
 
@@ -106,7 +184,21 @@ void writeStats(vector<pair<int, double>>& stats, const string& filepath) {
 
 
 int main(int argc, char* argv[]) {
+    MPI_Init(&argc, &argv);
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    if (rank == 0) {
+        cout << "Using " << size << " CPUs" << endl;
+    }
+
     auto stats = testMultiplication<int>("samples\\samples");
-    writeStats(stats, "stats.txt");
+
+    if (rank == 0) {
+        writeStats(stats, "stats.txt");
+    }
+
+    MPI_Finalize();
     return 0;
 }

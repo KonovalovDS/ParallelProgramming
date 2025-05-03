@@ -4,6 +4,7 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
+#include "cuda_runtime.h"
 
 using namespace std;
 

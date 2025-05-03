@@ -57,7 +57,8 @@ vector<vector<T>> multiplyMatricesCUDA(const vector<vector<T>>& left, const vect
     cudaMemcpy(d_left, flat_left.data(), left_rows * left_cols * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(d_right, flat_right.data(), right_rows * right_cols * sizeof(T), cudaMemcpyHostToDevice);
 
-    dim3 threadsPerBlock(16, 16);
+    int blockSize = 32;
+    dim3 threadsPerBlock(blockSize, blockSize);
     dim3 numBlocks((right_cols + threadsPerBlock.x - 1) / threadsPerBlock.x, (left_rows + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
     matrixMultiplyKernel<<<numBlocks, threadsPerBlock>>>(d_left, d_right, d_result, left_rows, left_cols, right_cols);
@@ -159,7 +160,16 @@ void writeStats(vector<pair<int, double>>& stats, const string& filepath) {
 }
 
 int main(int argc, char* argv[]) {
+    int devCount;
+    cudaGetDeviceCount(&devCount);
+    if (devCount == 0) {
+        cerr << "ERROR: No NVIDIA GPU found!" << endl;
+        return 1;
+    }
+    cudaSetDevice(0);
+
     auto stats = testMultiplication<int>("samples\\samples");
     writeStats(stats, "stats.txt");
+
     return 0;
 }

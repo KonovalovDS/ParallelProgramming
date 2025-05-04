@@ -9,44 +9,47 @@
 
 using namespace std;
 
-template<typename T>
-__global__ void matrixMultiplyKernel(T* left, T* right, T* result, int left_rows, int left_cols, int right_cols) {
+template <typename T>
+__global__ void matrixMultiplyKernel(const T* left, const T* right, T* result, int left_rows, int left_cols, int right_cols) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (row < left_rows && col < right_cols) {
-        int sum = 0;
-        for (int k = 0; k < left_cols; k++) {
-            sum += left[row * left_cols + k] * right[k * right_cols + col];
+        T sum = 0;
+        for (int i = 0; i < left_cols; ++i) {
+            sum += left[row * left_cols + i] * right[i * right_cols + col];
         }
         result[row * right_cols + col] = sum;
     }
 }
 
-template<typename T>
-vector<vector<T>> multiplyMatricesCUDA(const vector<vector<T>>& left, const vector<vector<T>>& right) {
-    int left_rows = left.size();
-    int left_cols = left[0].size();
-    int right_rows = right.size();
-    int right_cols = right[0].size();
-    if (left_cols != right_rows || left.empty() || right.empty()) {
-        cout << "Multiply error: cannot multiply matrices with this sizes: " << left_cols << "x" << right_rows << endl;
-        return {};
+template <typename T>
+vector<vector<T>> multiplyMatricesCUDA(const vector<vector<T>>& left, const std::vector<std::vector<T>>& right) {
+    if (left.empty() || right.empty() || left[0].empty() || right[0].empty()) {
+        throw std::invalid_argument("Empty matrix");
+    }
+    const int left_rows = left.size();
+    const int left_cols = left[0].size();
+    const int right_rows = right.size();
+    const int right_cols = right[0].size();
+
+    if (left_cols != right_rows) {
+        throw std::invalid_argument("Cannot multiply");
     }
 
     vector<T> flat_left(left_rows * left_cols);
     vector<T> flat_right(right_rows * right_cols);
-    vector<T> flat_result(left_rows * right_cols);
-
-    for (int i = 0; i < left_rows; i++) {
-        for (int j = 0; j < left_cols; j++) {
-            flat_left[i * left_cols + j] = left[i][j];
+    for (int i = 0; i < left_rows; ++i) {
+        if (left[i].size() != left_cols) {
+            throw std::invalid_argument("Inconsistent left matrix dimensions");
         }
+        std::copy(left[i].begin(), left[i].end(), flat_left.begin() + i * left_cols);
     }
-    for (int i = 0; i < right_rows; i++) {
-        for (int j = 0; j < right_cols; j++) {
-            flat_right[i * right_cols + j] = right[i][j];
+    for (int i = 0; i < right_rows; ++i) {
+        if (right[i].size() != right_cols) {
+            throw std::invalid_argument("Inconsistent right matrix dimensions");
         }
+        std::copy(right[i].begin(), right[i].end(), flat_right.begin() + i * right_cols);
     }
 
     T* d_left, * d_right, * d_result;
@@ -57,12 +60,13 @@ vector<vector<T>> multiplyMatricesCUDA(const vector<vector<T>>& left, const vect
     cudaMemcpy(d_left, flat_left.data(), left_rows * left_cols * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(d_right, flat_right.data(), right_rows * right_cols * sizeof(T), cudaMemcpyHostToDevice);
 
-    int blockSize = 32;
-    dim3 threadsPerBlock(blockSize, blockSize);
-    dim3 numBlocks((right_cols + threadsPerBlock.x - 1) / threadsPerBlock.x, (left_rows + threadsPerBlock.y - 1) / threadsPerBlock.y);
+    dim3 blockSize(32, 32);
+    dim3 gridSize((right_cols + blockSize.x - 1) / blockSize.x, (left_rows + blockSize.y - 1) / blockSize.y);
 
-    matrixMultiplyKernel<<<numBlocks, threadsPerBlock>>>(d_left, d_right, d_result, left_rows, left_cols, right_cols);
+    matrixMultiplyKernel<T><<<gridSize, blockSize>>>(d_left, d_right, d_result, left_rows, left_cols, right_cols);
+    cudaDeviceSynchronize();
 
+    vector<T> flat_result(left_rows * right_cols);
     cudaMemcpy(flat_result.data(), d_result, left_rows * right_cols * sizeof(T), cudaMemcpyDeviceToHost);
 
     cudaFree(d_left);
@@ -70,10 +74,8 @@ vector<vector<T>> multiplyMatricesCUDA(const vector<vector<T>>& left, const vect
     cudaFree(d_result);
 
     vector<vector<T>> result(left_rows, vector<T>(right_cols));
-    for (int i = 0; i < left_rows; i++) {
-        for (int j = 0; j < right_cols; j++) {
-            result[i][j] = flat_result[i * right_cols + j];
-        }
+    for (int i = 0; i < left_rows; ++i) {
+        std::copy(flat_result.begin() + i * right_cols, flat_result.begin() + (i + 1) * right_cols, result[i].begin());
     }
 
     return result;
